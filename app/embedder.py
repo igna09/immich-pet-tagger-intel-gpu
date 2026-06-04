@@ -108,16 +108,20 @@ def _clip_batch_loop(worker_id: int) -> None:
     
     try:
         # Create ONNX Runtime session with OpenVINO provider if available
+        available_providers = ort.get_available_providers()
         providers = []
-        if device == "GPU":
-            providers.append(("OpenVINOExecutionProvider", {"device_type": "GPU"}))
-        providers.extend([
-            ("OpenVINOExecutionProvider", {"device_type": "CPU"}),
-            ("CPUExecutionProvider", {})
-        ])
-        
+        if "OpenVINOExecutionProvider" in available_providers:
+            if device == "GPU":
+                providers.append(("OpenVINOExecutionProvider", {"device_type": "GPU"}))
+            providers.append(("OpenVINOExecutionProvider", {"device_type": "CPU"}))
+        providers.append(("CPUExecutionProvider", {}))
+
+        log.debug(f"ONNX Runtime providers available: {available_providers}")
+        log.debug(f"CLIP worker {worker_id} using providers: {providers}")
+
         session = ort.InferenceSession(CLIP_MODEL_PATH, providers=providers)
-        log.info(f"CLIP worker {worker_id} ready on {device}")
+        loaded_providers = session.get_providers()
+        log.info(f"CLIP worker {worker_id} ready with providers {loaded_providers}")
     except Exception as e:
         log.error(f"CLIP worker {worker_id} failed to load on {device}: {e}", exc_info=True)
         log.warning(f"CLIP worker {worker_id} falling back to CPU")

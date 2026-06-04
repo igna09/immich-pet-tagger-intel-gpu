@@ -12,8 +12,6 @@ from PIL import Image
 
 from device import get_torch_device
 
-import intel_extension_for_pytorch as ipex
-
 log = logging.getLogger("detector")
 
 YOLO_BATCH_SIZE = int(os.environ.get("YOLO_BATCH_SIZE", 32))
@@ -34,9 +32,17 @@ ANIMAL_CLASS_IDS = {
 }
 
 
+# class _YoloReq:
+#     __slots__ = ("tensor", "event", "result")
+#     def __init__(self, tensor: torch.Tensor):
+#         self.tensor = tensor
+#         self.event = threading.Event()
+#         self.result: list | None = None
+
+# --- Nella classe _YoloReq cambia l'annotazione (o accettala dinamica) ---
 class _YoloReq:
     __slots__ = ("tensor", "event", "result")
-    def __init__(self, tensor: torch.Tensor):
+    def __init__(self, tensor: np.ndarray): # Memorizziamo l'array NumPy
         self.tensor = tensor
         self.event = threading.Event()
         self.result: list | None = None
@@ -61,7 +67,7 @@ def _yolo_batch_loop(worker_id: int) -> None:
         log.debug(f"YOLO worker {worker_id} model loaded, moving to {device}")
         model.to(device)
         if device == "xpu":
-            model = ipex.optimize(model.model, dtype=torch.float32)
+            model.model = ipex.optimize(model.model, dtype=torch.float32)
         log.info(f"YOLO worker {worker_id} ready on {device}")
     except Exception as e:
         log.error(f"YOLO worker {worker_id} failed to load on {device}: {e}", exc_info=True)
@@ -85,12 +91,35 @@ def _yolo_batch_loop(worker_id: int) -> None:
         try:
             # Tensors are already preprocessed by caller threads: B×C×H×W, float32, [0,1], RGB.
             # Ultralytics skips PIL/numpy conversion when given a tensor directly.
-            stacked = torch.stack([req.tensor for req in batch])
+            # stacked = torch.stack([req.tensor for req in batch])
+            # model_device = getattr(next(model.parameters(), None), "device", device)
+            # log.debug(
+            #     f"YOLO worker {worker_id} infer batch={len(batch)} stacked_shape={stacked.shape} stacked_device={stacked.device} model_device={model_device}"
+            # )
+            # results_list = model(stacked, verbose=False, imgsz=YOLO_INPUT_SIZE)
+            # for req, result in zip(batch, results_list):
+            #     boxes = []
+            #     for box in result.boxes:
+            #         cls = int(box.cls[0])
+            #         if cls not in ANIMAL_CLASS_IDS:
+            #             continue
+            #         conf = float(box.conf[0])
+            #         x1, y1, x2, y2 = box.xyxyn[0].tolist()
+            #         boxes.append((conf, x1, y1, x2, y2))
+            #     boxes.sort(reverse=True)
+            #     req.result = [(x1, y1, x2, y2) for _, x1, y1, x2, y2 in boxes]
+            #     req.event.set()
+            imgs_list = [req.tensor for req in batch]
+            
             model_device = getattr(next(model.parameters(), None), "device", device)
             log.debug(
-                f"YOLO worker {worker_id} infer batch={len(batch)} stacked_shape={stacked.shape} stacked_device={stacked.device} model_device={model_device}"
+                f"YOLO worker {worker_id} infer batch={len(batch)} model_device={model_device}"
             )
-            results_list = model(stacked, verbose=False, imgsz=YOLO_INPUT_SIZE)
+            
+            # Passando direttamente la lista di numpy array, Ultralytics sposta i dati su XPU 
+            # usando i suoi wrapper interni che evitano il crash nel warmup NMS
+            results_list = model(imgs_list, verbose=False, imgsz=YOLO_INPUT_SIZE, device=device)
+            
             for req, result in zip(batch, results_list):
                 boxes = []
                 for box in result.boxes:
@@ -146,14 +175,26 @@ def _ensure_yolo_workers() -> None:
             _yolo_worker_threads.append(t)
 
 
+# def detect_animals(img: Image.Image) -> list[tuple[float, float, float, float]]:
+#     """Returns (x1, y1, x2, y2) normalized bboxes for detected animals, sorted by confidence."""
+#     _ensure_yolo_workers()
+#     # Pre-process in caller's thread (parallel across all scan workers).
+#     small = img.resize((YOLO_INPUT_SIZE, YOLO_INPUT_SIZE), Image.BILINEAR)
+#     arr = np.array(small, dtype=np.float32) / 255.0  # H×W×3, RGB, [0,1]
+#     tensor = torch.from_numpy(arr.transpose(2, 0, 1))  # C×H×W
+#     req = _YoloReq(tensor)
+#     _yolo_queue.put(req)
+#     req.event.wait()
+#     return req.result
 def detect_animals(img: Image.Image) -> list[tuple[float, float, float, float]]:
     """Returns (x1, y1, x2, y2) normalized bboxes for detected animals, sorted by confidence."""
     _ensure_yolo_workers()
-    # Pre-process in caller's thread (parallel across all scan workers).
+    
+    # Pre-process in formato NumPy standard (senza inizializzare torch qui)
     small = img.resize((YOLO_INPUT_SIZE, YOLO_INPUT_SIZE), Image.BILINEAR)
-    arr = np.array(small, dtype=np.float32) / 255.0  # H×W×3, RGB, [0,1]
-    tensor = torch.from_numpy(arr.transpose(2, 0, 1))  # C×H×W
-    req = _YoloReq(tensor)
+    arr = np.array(small, dtype=np.uint8) # Ultralytics lavora benissimo con uint8 [0, 255] standard
+    
+    req = _YoloReq(arr)
     _yolo_queue.put(req)
     req.event.wait()
     return req.result

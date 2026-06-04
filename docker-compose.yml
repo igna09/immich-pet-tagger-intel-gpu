@@ -1,13 +1,11 @@
 services:
   immich-pet-tagger:
-    image: ghcr.io/tedornitier/immich-pet-tagger:cpu  # GPU: use :latest (NVIDIA) or :rocm (AMD)
+    image: ghcr.io/tedornitier/immich-pet-tagger:cpu
     # build: section below is only needed if you want to build from source instead of pulling the image
     build:
       context: .
       args:
-        CUDA: "false"  # set to "true" for NVIDIA GPU, ROCM: "true" for AMD, or XPU: "true" for Intel integrated GPU
-        ROCM: "false"
-        XPU: "false"
+        XPU: "false"  # set to "true" for Intel GPU acceleration (integrated or discrete)
     container_name: immich-pet-tagger
     restart: unless-stopped
     ports:
@@ -20,11 +18,9 @@ services:
       - GPU_WORKERS=1
       - YOLO_INPUT_SIZE=640
       - THRESHOLD=0.8
-    # Uncomment the section below to enable NVIDIA GPU acceleration.
-    # Requires nvidia-container-toolkit: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
-    # For AMD, replace driver: nvidia with driver: amdgpu and use the :rocm image tag above.
-    # For Intel integrated GPU, build with XPU=true and grant access to /dev/dri on the host.
-    # Example:
+    # Uncomment and configure the section below to enable Intel GPU acceleration.
+    # Requires Intel GPU drivers on the host and XPU=true in the build args.
+    # Example for Intel GPU:
     #   build:
     #     context: .
     #     args:
@@ -33,6 +29,8 @@ services:
     #     - /dev/dri:/dev/dri
     #   group_add:
     #     - video
+    #   environment:
+    #     - GPU_WORKERS=2
     # deploy:
     #   resources:
     #     reservations:

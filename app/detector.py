@@ -63,10 +63,10 @@ def _letterbox(img: Image.Image, new_shape=(640, 640)) -> np.ndarray:
 def _ov_worker_loop() -> None:
     """OpenVINO async inference loop for YOLO detection."""
     global _yolo_total_ms, _yolo_count
-    core = ov.Core()
-
-    device = "GPU" if "GPU" in core.available_devices else "CPU"
-    log.info(f"OpenVINO loading model on {device}...")
+    from app.device import get_openvino_device
+    
+    device = get_openvino_device()
+    log.info(f"OpenVINO loading YOLO model on {device}...")
 
     model_path = "yolov8n_openvino_model/yolov8n.xml"
 

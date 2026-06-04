@@ -1,6 +1,8 @@
-"""Device helpers for CPU/GPU selection.
+"""Device helpers for Intel GPU/CPU selection.
 
 Uses OpenVINO to detect and manage available hardware accelerators.
+Supports Intel GPU (integrated or discrete) with CPU fallback.
+Explicitly excludes AMD and NVIDIA GPUs.
 """
 
 import logging
@@ -30,7 +32,10 @@ def _detect_devices():
 def get_openvino_device() -> str:
     """
     Get the best available OpenVINO device.
-    Prefers GPU > XPU > CPU in that order.
+    Prefers Intel GPU (integrated or discrete) > CPU.
+    
+    Explicitly supports only Intel GPU - AMD and NVIDIA are not supported.
+    OpenVINO's GPU support is limited to Intel hardware.
     """
     global _detected_device
     if _detected_device is not None:
@@ -41,16 +46,17 @@ def get_openvino_device() -> str:
     log.debug(f"Checking device availability...")
     log.debug(f"  Available devices: {_available_devices}")
     
-    # Check for discrete/integrated GPU
+    # Check for Intel GPU (integrated or discrete)
+    # OpenVINO GPU devices are Intel-only
     for device in _available_devices:
         if "GPU" in device:
             _detected_device = "GPU"
-            log.info(f"Using OpenVINO GPU device: {device}")
+            log.info(f"Using Intel GPU device via OpenVINO: {device}")
             return _detected_device
     
-    # Fallback to CPU
+    # Fallback to CPU (no GPU available)
     _detected_device = "CPU"
-    log.info("Using OpenVINO CPU device")
+    log.info("No Intel GPU available. Using CPU device")
     return _detected_device
 
 

@@ -3,27 +3,15 @@
 # ==========================================
 FROM python:3.12-slim AS builder
 
-ARG CUDA=false
-ARG CUDA_LEGACY=false
-ARG ROCM=false
+# Intel GPU (XPU) support flag
 ARG XPU=false
 
 # Installiamo i pacchetti direttamente nel sistema (senza venv) usando --user
 ENV PIP_USER=true
 ENV PATH="/root/.local/bin:$PATH"
 
-# RUN if [ "$CUDA" = "true" ] && [ "$CUDA_LEGACY" = "true" ]; then \
-#       pip install --no-cache-dir torch==2.7.0+cu126 torchvision==0.22.0+cu126 --extra-index-url https://download.pytorch.org/whl/cu126; \
-#     elif [ "$CUDA" = "true" ]; then \
-#       pip install --no-cache-dir torch==2.7.0+cu128 torchvision==0.22.0+cu128 --extra-index-url https://download.pytorch.org/whl/cu128; \
-#     elif [ "$ROCM" = "true" ]; then \
-#       pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/rocm6.3; \
-#     elif [ "$XPU" = "true" ]; then \
+# Install PyTorch with Intel GPU support or CPU-only
 RUN if [ "$XPU" = "true" ]; then \
-      # pip install --no-cache-dir --upgrade pip && \
-      # pip install --no-cache-dir \
-      #   torch==2.6.0 torchvision==0.21.0 \
-      #   --index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/; \
       pip install --no-cache-dir \
         torch==2.8.0 \
         torchvision \

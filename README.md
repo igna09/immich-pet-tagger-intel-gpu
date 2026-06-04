@@ -193,30 +193,11 @@ After that, the background poller runs every 5 minutes and tags new photos autom
 
 ## GPU support
 
-The default setup runs on CPU and requires no extra configuration. A GPU makes scans significantly faster but requires additional setup. Pre-built images are published for CPU, NVIDIA (default and legacy), and AMD/ROCm.
+This application is optimized for **Intel GPU (integrated or discrete) with CPU fallback**. AMD and NVIDIA GPUs are not supported.
 
-**CPU (default):** no changes needed.
+**CPU (default):** no changes needed. The app will automatically use CPU for inference.
 
-**NVIDIA GPU:** install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) on your host, then in `docker-compose.yml`:
-1. Change the image tag to `:latest` (default) or `:cuda-legacy` (Maxwell/Pascal/Volta — see below)
-2. Uncomment the `deploy:` section
-3. Set `GPU_WORKERS=2`
-
-```yaml
-image: ghcr.io/tedornitier/immich-pet-tagger:latest
-```
-
-The `:latest` image ships PyTorch's CUDA 12.8 wheels and supports Turing, Ampere, Ada Lovelace, Hopper, and Blackwell GPUs (compute capability 7.5–12.0, e.g. RTX 20xx/30xx/40xx/50xx, Tesla T4/A100/H100). Pascal and older are not covered — see the legacy tag.
-
-**NVIDIA legacy GPU (`:cuda-legacy`):** for Maxwell, Pascal, and Volta cards (GTX 9xx/10xx, Tesla P100/V100, compute capability 5.0–7.0). Same setup as above but use the `:cuda-legacy` tag instead:
-
-```yaml
-image: ghcr.io/tedornitier/immich-pet-tagger:cuda-legacy
-```
-
-This variant uses PyTorch's CUDA 12.6 wheels, which still include kernels for `sm_50` through `sm_90` but drop Blackwell (`sm_100`/`sm_120`). If you see `CUDA error: no kernel image is available for execution on the device` with `:latest` on an NVIDIA card, switch to this tag.
-
-**Intel integrated GPU:** install Intel GPU drivers on the host, then build the container with XPU support and grant it access to `/dev/dri`:
+**Intel GPU (iGPU or discrete):** install Intel GPU drivers on the host, then build the container with XPU support and grant it access to `/dev/dri`:
 
 ```yaml
 services:
@@ -234,20 +215,12 @@ services:
       - GPU_WORKERS=2
 ```
 
-The container still uses the same app code, but it will prefer Intel XPU when available. If you see `xpu` unavailable, verify that your host has the correct Intel OpenCL/OneAPI drivers and that `/dev/dri` is mounted into the container.
+The app will automatically detect and use Intel GPU when available, with transparent fallback to CPU if no GPU is found. Supported Intel GPUs include:
+- Intel Arc GPUs (A770, A750, A380, etc.)
+- Intel Iris Pro Graphics (integrated in recent CPUs)
+- Intel UHD/Iris Graphics (integrated in recent CPUs)
 
-**AMD GPU:** install ROCm drivers, then in `docker-compose.yml`:
-1. Change the image tag to `:rocm`
-2. Uncomment the `deploy:` section and change the driver to `amdgpu`
-
-```yaml
-image: ghcr.io/tedornitier/immich-pet-tagger:rocm
-```
-```yaml
-driver: amdgpu
-```
-
-CPU-only works fine for most home libraries. Expect roughly 10x slower processing compared to GPU.
+If GPU acceleration is not available, the app runs on CPU. Expect roughly 10x slower processing compared to GPU, which is fine for most home libraries.
 
 ## Limitations
 

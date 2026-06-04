@@ -75,9 +75,12 @@ ENV PYTHONPATH="/root/.local/lib/python3.12/site-packages"
 
 WORKDIR /app
 
-# [NOVITÀ] Scarica ed esporta il modello in FP16 durante la build
 # Usiamo python -c per non aver bisogno di file di script esterni
 RUN python -c "from ultralytics import YOLO; model = YOLO('yolov8n.pt'); model.export(format='openvino', half=True)"
+
+RUN mkdir -p clip_vit_b_16_openvino_model && \
+    wget -O clip_vit_b_16_openvino_model/model.onnx \
+      https://huggingface.co/Xenova/clip-vit-b-16/resolve/main/clip_vit_b_16_openvino_model/model.onnx
 
 VOLUME ["/data"]
 EXPOSE 8000

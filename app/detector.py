@@ -68,7 +68,7 @@ def _ov_worker_loop() -> None:
     device = get_openvino_device()
     log.info(f"OpenVINO loading YOLO model on {device}...")
 
-    model_path = "yolov8n_openvino_model/yolov8n.xml"
+    model_path = "yolov8s_openvino_model/yolov8s.xml"
 
     if not os.path.exists(model_path):
         log.error(f"OpenVINO model not found at {model_path}. Export it first!")

@@ -65,7 +65,7 @@ ENV PYTHONPATH="/root/.local/lib/python3.12/site-packages"
 WORKDIR /app
 
 # Usiamo python -c per non aver bisogno di file di script esterni
-RUN python -c "from ultralytics import YOLO; model = YOLO('yolov8n.pt'); model.export(format='openvino', half=True)"
+RUN python -c "from ultralytics import YOLO; model = YOLO('yolov8s.pt'); model.export(format='openvino', half=True)"
 
 RUN mkdir -p clip_vit_b_16_openvino_model && \
     python - <<'PY'

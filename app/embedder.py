@@ -1,4 +1,4 @@
-"""CLIP batch inference workers and image embedding."""
+"""CLIP batch inference workers and image embedding using ONNX Runtime."""
 
 import io
 import logging
@@ -6,27 +6,32 @@ import os
 import pickle
 import queue
 import threading
+import time
 from collections import OrderedDict
 from pathlib import Path
 
 import numpy as np
-import open_clip
 import requests
-import torch
 from PIL import Image
+import onnxruntime as ort
 
-from device import create_torch_stream, get_torch_device
-
+from device import get_openvino_device
 import immich as imm
 
 log = logging.getLogger("embedder")
 
 GPU_WORKERS = int(os.environ.get("GPU_WORKERS", 2))
-_default_scan_workers = GPU_WORKERS * 32 if get_torch_device() != "cpu" else 8
+_device = get_openvino_device()
+_default_scan_workers = GPU_WORKERS * 32 if _device != "CPU" else 8
 SCAN_WORKERS = int(os.environ.get("SCAN_WORKERS", _default_scan_workers))
 CLIP_BATCH_SIZE = int(os.environ.get("CLIP_BATCH_SIZE", 32))
-CLIP_MODEL_NAME = "ViT-B-16"
-CLIP_PRETRAINED = "openai"
+
+# CLIP model: ViT-B-16 from OpenAI converted to ONNX
+# Model downloaded from: https://huggingface.co/Xenova/clip-vit-b-16
+CLIP_MODEL_PATH = os.environ.get(
+    "CLIP_MODEL_PATH", 
+    "clip_vit_b_16_openvino_model/model.onnx"
+)
 
 MAX_EMBED_CACHE_SIZE = int(os.environ.get("EMBED_CACHE_SIZE", 5000))
 _embed_cache: OrderedDict[str, list[np.ndarray]] = OrderedDict()
@@ -35,22 +40,39 @@ _cache_dirty = False
 _cache_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
+# CLIP image preprocessing (standard for ViT-B-16)
+# ---------------------------------------------------------------------------
+
+CLIP_IMAGE_MEAN = np.array([0.48145466, 0.4578275, 0.40821073], dtype=np.float32)
+CLIP_IMAGE_STD = np.array([0.26862954, 0.26130258, 0.27577711], dtype=np.float32)
+
+
+def _preprocess_image(img: Image.Image) -> np.ndarray:
+    """Preprocess image for CLIP model (resize, normalize)."""
+    # Resize to 224x224 (standard for ViT-B-16)
+    img = img.resize((224, 224), Image.BILINEAR)
+    img_array = np.array(img, dtype=np.float32) / 255.0
+    
+    # Normalize with CLIP mean/std
+    img_array = (img_array - CLIP_IMAGE_MEAN) / CLIP_IMAGE_STD
+    
+    # CHW format for ONNX
+    img_array = np.transpose(img_array, (2, 0, 1))
+    return img_array
+
+
+# ---------------------------------------------------------------------------
 # CLIP batch workers
 # ---------------------------------------------------------------------------
 
-# Preprocess transform shared across worker threads (set by first CLIP worker).
-# Worker threads do CPU preprocessing; batch threads only stack + run GPU.
-_clip_preprocess_fn = None
-_clip_preprocess_ready = threading.Event()
-
-
 class _EmbedReq:
-    __slots__ = ("tensor", "event", "result")
-
-    def __init__(self, tensor: torch.Tensor):
-        self.tensor = tensor
+    __slots__ = ("array", "event", "result", "start_time")
+    
+    def __init__(self, array: np.ndarray):
+        self.array = array
         self.event = threading.Event()
         self.result: np.ndarray | None = None
+        self.start_time = time.perf_counter()
 
 
 _embed_queue: queue.Queue[_EmbedReq] = queue.Queue()
@@ -59,13 +81,14 @@ _clip_worker_lock = threading.Lock()
 
 _clip_batch_total = 0
 _clip_batch_count = 0
+_clip_total_ms = 0.0
 _stats_lock = threading.Lock()
 
 
 def reset_batch_stats() -> None:
-    global _clip_batch_total, _clip_batch_count
+    global _clip_batch_total, _clip_batch_count, _clip_total_ms
     with _stats_lock:
-        _clip_batch_total = _clip_batch_count = 0
+        _clip_batch_total = _clip_batch_count = _clip_total_ms = 0
 
 
 def get_avg_batch_size() -> float:
@@ -74,30 +97,37 @@ def get_avg_batch_size() -> float:
 
 
 def _clip_batch_loop(worker_id: int) -> None:
-    global _clip_batch_total, _clip_batch_count, _clip_preprocess_fn
-    device = get_torch_device()
+    global _clip_batch_total, _clip_batch_count, _clip_total_ms
+    
+    device = get_openvino_device()
     log.info(f"CLIP worker {worker_id} loading on {device}...")
+    
+    if not os.path.exists(CLIP_MODEL_PATH):
+        log.error(f"CLIP model not found at {CLIP_MODEL_PATH}. Download it first!")
+        return
+    
     try:
-        model, preprocess, _ = open_clip.create_model_and_transforms(CLIP_MODEL_NAME, pretrained=CLIP_PRETRAINED)
-        log.debug(f"CLIP worker {worker_id} model created, moving to {device}")
-        model.eval().to(device)
-        if not _clip_preprocess_ready.is_set():
-            _clip_preprocess_fn = preprocess
-            _clip_preprocess_ready.set()
-        stream = create_torch_stream(device)
+        # Create ONNX Runtime session with OpenVINO provider if available
+        providers = []
+        if device == "GPU":
+            providers.append(("OpenVINOExecutionProvider", {"device_type": "GPU"}))
+        providers.extend([
+            ("OpenVINOExecutionProvider", {"device_type": "CPU"}),
+            ("CPUExecutionProvider", {})
+        ])
+        
+        session = ort.InferenceSession(CLIP_MODEL_PATH, providers=providers)
         log.info(f"CLIP worker {worker_id} ready on {device}")
     except Exception as e:
         log.error(f"CLIP worker {worker_id} failed to load on {device}: {e}", exc_info=True)
         log.warning(f"CLIP worker {worker_id} falling back to CPU")
-        device = "cpu"
-        model, preprocess, _ = open_clip.create_model_and_transforms(CLIP_MODEL_NAME, pretrained=CLIP_PRETRAINED)
-        model.eval().to(device)
-        if not _clip_preprocess_ready.is_set():
-            _clip_preprocess_fn = preprocess
-            _clip_preprocess_ready.set()
-        stream = create_torch_stream(device)
-        log.info(f"CLIP worker {worker_id} ready on CPU (fallback)")
-
+        try:
+            session = ort.InferenceSession(CLIP_MODEL_PATH, providers=["CPUExecutionProvider"])
+            log.info(f"CLIP worker {worker_id} ready on CPU (fallback)")
+        except Exception as e2:
+            log.error(f"CLIP worker {worker_id} failed on CPU fallback: {e2}", exc_info=True)
+            return
+    
     while True:
         first = _embed_queue.get()
         batch = [first]
@@ -106,35 +136,36 @@ def _clip_batch_loop(worker_id: int) -> None:
                 batch.append(_embed_queue.get_nowait())
         except queue.Empty:
             pass
-
+        
         with _stats_lock:
             _clip_batch_total += len(batch)
             _clip_batch_count += 1
-
+        
         try:
-            stacked = torch.stack([req.tensor for req in batch])
-            if stream is not None:
-                with stream:
-                    tensors = stacked.to(device, non_blocking=True)
-                    with torch.no_grad():
-                        feats = model.encode_image(tensors)
-                        feats = feats / feats.norm(dim=-1, keepdim=True)
-                stream.synchronize()
-                vecs = feats.cpu().numpy()
-            else:
-                with torch.no_grad():
-                    feats = model.encode_image(stacked.to(device))
-                    feats = feats / feats.norm(dim=-1, keepdim=True)
-                vecs = feats.cpu().numpy()
+            # Stack batch: (batch_size, 3, 224, 224)
+            batch_data = np.stack([req.array for req in batch], axis=0).astype(np.float32)
+            
+            # Run inference
+            outputs = session.run(None, {"pixel_values": batch_data})
+            feats = outputs[0]  # Image embeddings
+            
+            # Normalize embeddings
+            feats = feats / (np.linalg.norm(feats, axis=1, keepdims=True) + 1e-8)
+            vecs = feats
+            
         except Exception as e:
             log.error(
                 f"CLIP worker {worker_id} batch error device={device} batch_size={len(batch)}: {e}",
                 exc_info=True,
             )
             vecs = [None] * len(batch)
-
+        
+        # Record timing
         for req, vec in zip(batch, vecs):
             req.result = vec
+            duration_ms = (time.perf_counter() - req.start_time) * 1000.0
+            with _stats_lock:
+                _clip_total_ms += duration_ms
             req.event.set()
 
 
@@ -142,7 +173,12 @@ def _ensure_clip_workers() -> None:
     with _clip_worker_lock:
         alive = [t for t in _clip_worker_threads if t.is_alive()]
         for i in range(len(alive), GPU_WORKERS):
-            t = threading.Thread(target=_clip_batch_loop, args=(i,), daemon=True, name=f"clip-batch-{i}")
+            t = threading.Thread(
+                target=_clip_batch_loop, 
+                args=(i,), 
+                daemon=True, 
+                name=f"clip-batch-{i}"
+            )
             t.start()
             _clip_worker_threads.append(t)
 
@@ -166,10 +202,16 @@ def fetch_thumbnail(asset_id: str) -> Image.Image | None:
 
 
 def embed_image(img: Image.Image) -> np.ndarray | None:
+    """Embed an image using CLIP. Returns normalized embedding."""
     _ensure_clip_workers()
-    _clip_preprocess_ready.wait()  # blocks only until first CLIP worker is up
-    tensor = _clip_preprocess_fn(img)  # CPU preprocessing in caller's thread
-    req = _EmbedReq(tensor)
+    
+    try:
+        arr = _preprocess_image(img)
+    except Exception as e:
+        log.warning(f"Image preprocessing failed: {e}")
+        return None
+    
+    req = _EmbedReq(arr)
     _embed_queue.put(req)
     req.event.wait()
     return req.result
@@ -297,6 +339,15 @@ def embed_asset_crops(asset_id: str, require_animal: bool = False) -> list[np.nd
 def embed_asset(asset_id: str, require_animal: bool = False) -> np.ndarray | None:
     vecs = embed_asset_crops(asset_id, require_animal)
     return vecs[0] if vecs else None
+
+
+def resolve_bbox(asset_id: str) -> list | None:
+    """Return the first YOLO bounding box for an asset, or None if no animal detected."""
+    img = fetch_thumbnail(asset_id)
+    if img is None:
+        return None
+    crops = crop_animals(img)
+    return list(crops[0][0]) if crops else None
 
 
 def resolve_bbox(asset_id: str) -> list | None:

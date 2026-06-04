@@ -15,7 +15,7 @@ from fastapi.responses import FileResponse
 
 from pathlib import Path
 from embedder import load_embed_cache
-from device import get_torch_device
+from device import get_openvino_device
 from poller import run_poll_cycle, migrate_ref_bboxes
 from api import router as api_router
 import state
@@ -27,32 +27,17 @@ logging.basicConfig(
 )
 log = logging.getLogger("main")
 
-# Initialize Intel XPU support if available
-try:
-    import intel_extension_for_pytorch
-    log.debug("Intel Extension for PyTorch loaded")
-except ImportError:
-    log.debug("Intel Extension for PyTorch not available")
-
 
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", 300))
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 
 
 async def polling_loop():
-    device = get_torch_device()
+    device = get_openvino_device()
     log.info(f"Poller started")
     log.info(f"  Interval: {POLL_INTERVAL}s")
     log.info(f"  Data dir: {DATA_DIR}")
     log.info(f"  Device: {device}")
-    log.debug(f"Available torch backends:")
-    log.debug(f"    CUDA: {hasattr(__import__('torch'), 'cuda')}")
-    log.debug(f"    XPU: {hasattr(__import__('torch'), 'xpu')}")
-    try:
-        import intel_extension_for_pytorch
-        log.debug(f"    intel_extension_for_pytorch: available")
-    except ImportError:
-        log.debug(f"    intel_extension_for_pytorch: NOT installed")
     while True:
         try:
             log.info("Starting poll cycle...")

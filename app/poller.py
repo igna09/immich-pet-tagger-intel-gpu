@@ -234,7 +234,7 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
     import detector as _det
     emb.reset_batch_stats()
     with _det._yolo_stats_lock:
-        _det.yolo_batch_total = _det.yolo_batch_count = 0
+        _det._yolo_total_ms = _det._yolo_count = 0
 
     log.info(f"Processing {len(assets)} assets with {emb.SCAN_WORKERS} workers")
     t0 = time.time()
@@ -253,7 +253,7 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
     elapsed = time.time() - t0
     clip_avg = emb.get_avg_batch_size()
     with _det._yolo_stats_lock:
-        yolo_avg = _det.yolo_batch_total / _det.yolo_batch_count if _det.yolo_batch_count else 0
+        yolo_avg = _det._yolo_total_ms / _det._yolo_count if _det._yolo_count else 0
     log.info(
         f"STATS | assets={len(assets)} elapsed={elapsed:.1f}s "
         f"throughput={len(assets)/elapsed:.1f}/s "

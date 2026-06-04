@@ -9,6 +9,39 @@ def _make_stub(name: str) -> types.ModuleType:
     return mod
 
 
+def _stub_openvino() -> None:
+    ov = _make_stub("openvino")
+    
+    class _FakeCore:
+        available_devices = ["CPU"]
+        
+        def read_model(self, path):
+            return _make_stub("model")
+        
+        def compile_model(self, model, device):
+            return _make_stub("compiled_model")
+    
+    class _FakeAsyncInferQueue:
+        def __init__(self, *args, **kwargs): pass
+        def set_callback(self, cb): pass
+        def start_async(self, inputs, userdata): pass
+    
+    ov.Core = _FakeCore
+    ov.AsyncInferQueue = _FakeAsyncInferQueue
+    sys.modules["openvino"] = ov
+
+
+def _stub_onnxruntime() -> None:
+    ort = _make_stub("onnxruntime")
+    
+    class _FakeSession:
+        def run(self, outputs, inputs):
+            return [None]
+    
+    ort.InferenceSession = lambda *args, **kwargs: _FakeSession()
+    sys.modules["onnxruntime"] = ort
+
+
 def _stub_torch() -> None:
     torch = _make_stub("torch")
     torch.cuda = types.SimpleNamespace(is_available=lambda: False, Stream=None)
@@ -45,6 +78,8 @@ def _stub_ultralytics() -> None:
     sys.modules["ultralytics"] = ul
 
 
+_stub_openvino()
+_stub_onnxruntime()
 _stub_torch()
 _stub_open_clip()
 _stub_ultralytics()

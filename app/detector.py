@@ -3,7 +3,7 @@ import os
 import queue
 import threading
 import numpy as np
-import openvino.runtime as ov
+import openvino as ov
 from PIL import Image
 
 log = logging.getLogger("detector")

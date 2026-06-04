@@ -66,8 +66,6 @@ def _yolo_batch_loop(worker_id: int) -> None:
         model = YOLO("yolov8n.pt")
         log.debug(f"YOLO worker {worker_id} model loaded, moving to {device}")
         model.to(device)
-        if device == "xpu":
-            model.model = ipex.optimize(model.model, dtype=torch.float32)
         log.info(f"YOLO worker {worker_id} ready on {device}")
     except Exception as e:
         log.error(f"YOLO worker {worker_id} failed to load on {device}: {e}", exc_info=True)

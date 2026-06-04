@@ -25,7 +25,7 @@ RUN if [ "$XPU" = "true" ]; then \
       #   torch==2.6.0 torchvision==0.21.0 \
       #   --index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/; \
       pip install --no-cache-dir \
-        torch==2.7.0+xpu \
+        torch==2.8.0 \
         torchvision \
         intel_extension_for_pytorch \
         --extra-index-url https://download.pytorch.org/whl/xpu; \

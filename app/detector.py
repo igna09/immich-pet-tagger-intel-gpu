@@ -12,6 +12,8 @@ from PIL import Image
 
 from device import get_torch_device
 
+import intel_extension_for_pytorch as ipex
+
 log = logging.getLogger("detector")
 
 YOLO_BATCH_SIZE = int(os.environ.get("YOLO_BATCH_SIZE", 32))
@@ -58,6 +60,8 @@ def _yolo_batch_loop(worker_id: int) -> None:
         model = YOLO("yolov8n.pt")
         log.debug(f"YOLO worker {worker_id} model loaded, moving to {device}")
         model.to(device)
+        if device == "xpu":
+            model = ipex.optimize(model.model, dtype=torch.float32)
         log.info(f"YOLO worker {worker_id} ready on {device}")
     except Exception as e:
         log.error(f"YOLO worker {worker_id} failed to load on {device}: {e}", exc_info=True)

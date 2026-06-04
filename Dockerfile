@@ -68,17 +68,18 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && pip uninstall -y triton 2>/dev/null || true
 
 # ==========================================
-# 2. RUNTIME STAGE (Modificato con Ubuntu 24.04)
+# 2. RUNTIME STAGE (Fixato per i link di Python)
 # ==========================================
 FROM ubuntu:24.04
 
 # Evita prompt interattivi durante l'installazione
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Installiamo Python 3.12 e i driver Intel ufficiali per Ubuntu Noble
+# Installiamo Python 3.12, il pacchetto defaults (che crea il link 'python3') e i driver Intel
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.12 \
     python3.12-venv \
+    python3-minimal \
     gpg \
     wget \
     ca-certificates \
@@ -92,6 +93,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copiamo il virtualenv dal builder stage
 COPY --from=builder /opt/venv /opt/venv
+
+# Forziamo il PATH a usare il python del virtualenv, 
+# ma creiamo anche un alias di sicurezza a livello di sistema
+RUN ln -sf /usr/bin/python3.12 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3.12 /usr/bin/python
+
 ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
@@ -102,4 +109,5 @@ COPY VERSION .
 COPY app/ .
 COPY debug_device.py .
 
+# Usiamo "python" che è l'eseguibile standard generato dentro /opt/venv/bin/
 CMD ["python", "main.py"]

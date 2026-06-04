@@ -626,7 +626,7 @@ async def get_borderline(name: str, limit: int = 40):
 
     scored = await asyncio.to_thread(compute)
     return {
-        "assets": [slim for _, slim in scored],
+        "assets": scored,
         "threshold": THRESHOLD,
     }
 

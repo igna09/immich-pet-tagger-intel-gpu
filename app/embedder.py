@@ -127,7 +127,10 @@ def _clip_batch_loop(worker_id: int) -> None:
                     feats = feats / feats.norm(dim=-1, keepdim=True)
                 vecs = feats.cpu().numpy()
         except Exception as e:
-            log.warning(f"CLIP worker {worker_id} batch error: {e}")
+            log.error(
+                f"CLIP worker {worker_id} batch error device={device} batch_size={len(batch)}: {e}",
+                exc_info=True,
+            )
             vecs = [None] * len(batch)
 
         for req, vec in zip(batch, vecs):

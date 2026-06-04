@@ -82,6 +82,10 @@ def _yolo_batch_loop(worker_id: int) -> None:
             # Tensors are already preprocessed by caller threads: B×C×H×W, float32, [0,1], RGB.
             # Ultralytics skips PIL/numpy conversion when given a tensor directly.
             stacked = torch.stack([req.tensor for req in batch])
+            model_device = getattr(next(model.parameters(), None), "device", device)
+            log.debug(
+                f"YOLO worker {worker_id} infer batch={len(batch)} stacked_shape={stacked.shape} stacked_device={stacked.device} model_device={model_device}"
+            )
             results_list = model(stacked, verbose=False, imgsz=YOLO_INPUT_SIZE)
             for req, result in zip(batch, results_list):
                 boxes = []
@@ -96,7 +100,34 @@ def _yolo_batch_loop(worker_id: int) -> None:
                 req.result = [(x1, y1, x2, y2) for _, x1, y1, x2, y2 in boxes]
                 req.event.set()
         except Exception as e:
-            log.warning(f"YOLO worker {worker_id} batch error: {e}")
+            extra = []
+            if hasattr(torch, "cuda"):
+                try:
+                    extra.append(f"cuda_available={torch.cuda.is_available()}")
+                    if torch.cuda.is_available():
+                        extra.append(f"cuda_device_count={torch.cuda.device_count()}")
+                        current = torch.cuda.current_device()
+                        extra.append(f"cuda_current_device={current}")
+                        extra.append(
+                            f"cuda_allocated={torch.cuda.memory_allocated(current)}"
+                        )
+                        extra.append(
+                            f"cuda_reserved={torch.cuda.memory_reserved(current)}"
+                        )
+                except Exception as inner:
+                    extra.append(f"cuda_status_error={inner}")
+            if hasattr(torch, "xpu"):
+                try:
+                    extra.append(f"xpu_available={torch.xpu.is_available()}")
+                except Exception as inner:
+                    extra.append(f"xpu_status_error={inner}")
+            log.error(
+                f"YOLO worker {worker_id} batch error device={device} batch_size={len(batch)} "
+                f"stacked_shape={stacked.shape if 'stacked' in locals() else 'unknown'} "
+                f"model_device={model_device if 'model_device' in locals() else 'unknown'} "
+                f"queue_size={_yolo_queue.qsize()} {' '.join(extra)}: {e}",
+                exc_info=True,
+            )
             for req in batch:
                 req.result = []
                 req.event.set()

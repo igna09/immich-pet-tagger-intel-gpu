@@ -54,9 +54,16 @@ def _yolo_batch_loop(worker_id: int) -> None:
     from ultralytics import YOLO
     device = get_torch_device()
     log.info(f"YOLO worker {worker_id} loading on {device}...")
-    model = YOLO("yolov8n.pt")
-    model.to(device)
-    log.info(f"YOLO worker {worker_id} ready")
+    try:
+        model = YOLO("yolov8n.pt")
+        log.debug(f"YOLO worker {worker_id} model loaded, moving to {device}")
+        model.to(device)
+        log.info(f"YOLO worker {worker_id} ready on {device}")
+    except Exception as e:
+        log.error(f"YOLO worker {worker_id} failed to load on {device}: {e}", exc_info=True)
+        log.warning(f"YOLO worker {worker_id} falling back to CPU")
+        model = YOLO("yolov8n.pt")
+        model.to("cpu")
 
     while True:
         first = _yolo_queue.get()

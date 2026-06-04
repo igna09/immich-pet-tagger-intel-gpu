@@ -77,13 +77,26 @@ def _clip_batch_loop(worker_id: int) -> None:
     global _clip_batch_total, _clip_batch_count, _clip_preprocess_fn
     device = get_torch_device()
     log.info(f"CLIP worker {worker_id} loading on {device}...")
-    model, preprocess, _ = open_clip.create_model_and_transforms(CLIP_MODEL_NAME, pretrained=CLIP_PRETRAINED)
-    model.eval().to(device)
-    if not _clip_preprocess_ready.is_set():
-        _clip_preprocess_fn = preprocess
-        _clip_preprocess_ready.set()
-    stream = create_torch_stream(device)
-    log.info(f"CLIP worker {worker_id} ready")
+    try:
+        model, preprocess, _ = open_clip.create_model_and_transforms(CLIP_MODEL_NAME, pretrained=CLIP_PRETRAINED)
+        log.debug(f"CLIP worker {worker_id} model created, moving to {device}")
+        model.eval().to(device)
+        if not _clip_preprocess_ready.is_set():
+            _clip_preprocess_fn = preprocess
+            _clip_preprocess_ready.set()
+        stream = create_torch_stream(device)
+        log.info(f"CLIP worker {worker_id} ready on {device}")
+    except Exception as e:
+        log.error(f"CLIP worker {worker_id} failed to load on {device}: {e}", exc_info=True)
+        log.warning(f"CLIP worker {worker_id} falling back to CPU")
+        device = "cpu"
+        model, preprocess, _ = open_clip.create_model_and_transforms(CLIP_MODEL_NAME, pretrained=CLIP_PRETRAINED)
+        model.eval().to(device)
+        if not _clip_preprocess_ready.is_set():
+            _clip_preprocess_fn = preprocess
+            _clip_preprocess_ready.set()
+        stream = create_torch_stream(device)
+        log.info(f"CLIP worker {worker_id} ready on CPU (fallback)")
 
     while True:
         first = _embed_queue.get()

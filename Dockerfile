@@ -36,6 +36,7 @@ RUN if [ "$XPU" = "true" ]; then \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir transformers \
     && pip uninstall -y opencv-python \
     && pip install --no-cache-dir opencv-python-headless \
     && pip uninstall -y triton 2>/dev/null || true
@@ -79,8 +80,42 @@ WORKDIR /app
 RUN python -c "from ultralytics import YOLO; model = YOLO('yolov8n.pt'); model.export(format='openvino', half=True)"
 
 RUN mkdir -p clip_vit_b_16_openvino_model && \
-    wget -O clip_vit_b_16_openvino_model/model.onnx \
-      https://huggingface.co/Xenova/clip-vit-b-16/resolve/main/clip_vit_b_16_openvino_model/model.onnx
+    python - <<'PY'
+from pathlib import Path
+import torch
+from transformers import CLIPModel
+
+model = CLIPModel.from_pretrained('openai/clip-vit-base-patch16')
+model.eval()
+
+class ClipEncoder(torch.nn.Module):
+    def __init__(self, clip):
+        super().__init__()
+        self.vision = clip.vision_model
+        self.projection = clip.visual_projection
+
+    def forward(self, pixel_values):
+        outputs = self.vision(pixel_values)
+        pooled = outputs.pooler_output
+        return self.projection(pooled)
+
+wrapper = ClipEncoder(model)
+output_path = Path('clip_vit_b_16_openvino_model') / 'model.onnx'
+dummy = torch.randn(1, 3, 224, 224)
+
+torch.onnx.export(
+    wrapper,
+    dummy,
+    output_path,
+    opset_version=16,
+    input_names=['pixel_values'],
+    output_names=['image_embeds'],
+    dynamic_axes={
+        'pixel_values': {0: 'batch'},
+        'image_embeds': {0: 'batch'},
+    },
+)
+PY
 
 VOLUME ["/data"]
 EXPOSE 8000

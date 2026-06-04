@@ -6,10 +6,12 @@ FROM python:3.12-slim AS builder
 #   NVIDIA (default, Turing+ incl. Blackwell):       set CUDA=true
 #   NVIDIA legacy (Maxwell/Pascal/Volta, no Blackwell): set CUDA=true and CUDA_LEGACY=true
 #   AMD:    set ROCM=true  (requires ROCm drivers on the host)
+#   Intel integrated GPU: set XPU=true (requires Intel GPU drivers and /dev/dri access)
 #   None:   leave all false (CPU-only, slow but works)
 ARG CUDA=false
 ARG CUDA_LEGACY=false
 ARG ROCM=false
+ARG XPU=false
 
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
@@ -32,6 +34,12 @@ RUN if [ "$CUDA" = "true" ] && [ "$CUDA_LEGACY" = "true" ]; then \
         torch==2.7.0 \
         torchvision==0.22.0 \
         --index-url https://download.pytorch.org/whl/rocm6.3; \
+    elif [ "$XPU" = "true" ]; then \
+      pip install --no-cache-dir \
+        torch==2.7.0+xpu \
+        torchvision \
+        intel_extension_for_pytorch \
+        --extra-index-url https://download.pytorch.org/whl/xpu; \
     else \
       pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 \
         --index-url https://download.pytorch.org/whl/cpu; \

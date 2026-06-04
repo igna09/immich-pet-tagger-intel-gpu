@@ -8,7 +8,6 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-import torch
 import uvicorn
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +15,7 @@ from fastapi.responses import FileResponse
 
 from pathlib import Path
 from embedder import load_embed_cache
+from device import get_torch_device
 from poller import run_poll_cycle, migrate_ref_bboxes
 from api import router as api_router
 import state
@@ -32,7 +32,7 @@ DATA_DIR = os.environ.get("DATA_DIR", "/data")
 
 
 async def polling_loop():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = get_torch_device()
     log.info(f"Poller started. Interval: {POLL_INTERVAL}s. Data dir: {DATA_DIR}. Device: {device}")
     while True:
         try:

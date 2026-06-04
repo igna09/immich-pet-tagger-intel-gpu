@@ -5,7 +5,9 @@ services:
     build:
       context: .
       args:
-        CUDA: "false"  # set to "true" for NVIDIA GPU, or ROCM: "true" for AMD
+        CUDA: "false"  # set to "true" for NVIDIA GPU, ROCM: "true" for AMD, or XPU: "true" for Intel integrated GPU
+        ROCM: "false"
+        XPU: "false"
     container_name: immich-pet-tagger
     restart: unless-stopped
     ports:
@@ -21,6 +23,16 @@ services:
     # Uncomment the section below to enable NVIDIA GPU acceleration.
     # Requires nvidia-container-toolkit: https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
     # For AMD, replace driver: nvidia with driver: amdgpu and use the :rocm image tag above.
+    # For Intel integrated GPU, build with XPU=true and grant access to /dev/dri on the host.
+    # Example:
+    #   build:
+    #     context: .
+    #     args:
+    #       XPU: "true"
+    #   devices:
+    #     - /dev/dri:/dev/dri
+    #   group_add:
+    #     - video
     # deploy:
     #   resources:
     #     reservations:

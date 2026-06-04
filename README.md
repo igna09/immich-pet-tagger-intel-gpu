@@ -216,6 +216,26 @@ image: ghcr.io/tedornitier/immich-pet-tagger:cuda-legacy
 
 This variant uses PyTorch's CUDA 12.6 wheels, which still include kernels for `sm_50` through `sm_90` but drop Blackwell (`sm_100`/`sm_120`). If you see `CUDA error: no kernel image is available for execution on the device` with `:latest` on an NVIDIA card, switch to this tag.
 
+**Intel integrated GPU:** install Intel GPU drivers on the host, then build the container with XPU support and grant it access to `/dev/dri`:
+
+```yaml
+services:
+  immich-pet-tagger:
+    image: ghcr.io/tedornitier/immich-pet-tagger:cpu
+    build:
+      context: .
+      args:
+        XPU: "true"
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    environment:
+      - GPU_WORKERS=2
+```
+
+The container still uses the same app code, but it will prefer Intel XPU when available. If you see `xpu` unavailable, verify that your host has the correct Intel OpenCL/OneAPI drivers and that `/dev/dri` is mounted into the container.
+
 **AMD GPU:** install ROCm drivers, then in `docker-compose.yml`:
 1. Change the image tag to `:rocm`
 2. Uncomment the `deploy:` section and change the driver to `amdgpu`

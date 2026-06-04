@@ -15,12 +15,14 @@ import requests
 import torch
 from PIL import Image
 
+from device import create_torch_stream, get_torch_device
+
 import immich as imm
 
 log = logging.getLogger("embedder")
 
 GPU_WORKERS = int(os.environ.get("GPU_WORKERS", 2))
-_default_scan_workers = GPU_WORKERS * 32 if torch.cuda.is_available() else 8
+_default_scan_workers = GPU_WORKERS * 32 if get_torch_device() != "cpu" else 8
 SCAN_WORKERS = int(os.environ.get("SCAN_WORKERS", _default_scan_workers))
 CLIP_BATCH_SIZE = int(os.environ.get("CLIP_BATCH_SIZE", 32))
 CLIP_MODEL_NAME = "ViT-B-16"
@@ -73,14 +75,14 @@ def get_avg_batch_size() -> float:
 
 def _clip_batch_loop(worker_id: int) -> None:
     global _clip_batch_total, _clip_batch_count, _clip_preprocess_fn
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = get_torch_device()
     log.info(f"CLIP worker {worker_id} loading on {device}...")
     model, preprocess, _ = open_clip.create_model_and_transforms(CLIP_MODEL_NAME, pretrained=CLIP_PRETRAINED)
     model.eval().to(device)
     if not _clip_preprocess_ready.is_set():
         _clip_preprocess_fn = preprocess
         _clip_preprocess_ready.set()
-    stream = torch.cuda.Stream() if device == "cuda" else None
+    stream = create_torch_stream(device)
     log.info(f"CLIP worker {worker_id} ready")
 
     while True:
@@ -99,7 +101,7 @@ def _clip_batch_loop(worker_id: int) -> None:
         try:
             stacked = torch.stack([req.tensor for req in batch])
             if stream is not None:
-                with torch.cuda.stream(stream):
+                with stream:
                     tensors = stacked.to(device, non_blocking=True)
                     with torch.no_grad():
                         feats = model.encode_image(tensors)

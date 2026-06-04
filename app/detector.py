@@ -10,6 +10,8 @@ import numpy as np
 import torch
 from PIL import Image
 
+from device import get_torch_device
+
 log = logging.getLogger("detector")
 
 YOLO_BATCH_SIZE = int(os.environ.get("YOLO_BATCH_SIZE", 32))
@@ -50,7 +52,7 @@ _yolo_stats_lock = threading.Lock()
 def _yolo_batch_loop(worker_id: int) -> None:
     global yolo_batch_total, yolo_batch_count
     from ultralytics import YOLO
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = get_torch_device()
     log.info(f"YOLO worker {worker_id} loading on {device}...")
     model = YOLO("yolov8n.pt")
     model.to(device)

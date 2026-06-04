@@ -537,7 +537,7 @@ async def get_suggestions(name: str, limit: int = 20):
         if name not in names:
             return []
         pet_idx = names.index(name)
-        scored = []
+        scored: dict[str, tuple[float, dict]] = {}
         with ThreadPoolExecutor(max_workers=emb.SCAN_WORKERS) as ex:
             futures = {ex.submit(emb.get_crops_and_embed, a["id"]): a for a in candidates}
             for future in as_completed(futures):
@@ -545,9 +545,13 @@ async def get_suggestions(name: str, limit: int = 20):
                 for c, vec in (future.result() or []):
                     v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
                     prob = float(clf.predict_proba(scaler.transform(v))[0][pet_idx])
-                    scored.append((prob, {**_slim_asset(a), "crops": [c]}))
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return [item for _, item in scored[:limit]]
+                    aid = a["id"]
+                    item = {**_slim_asset(a), "crops": [c]}
+                    existing = scored.get(aid)
+                    if existing is None or prob > existing[0]:
+                        scored[aid] = (prob, item)
+        results = [item for _, item in sorted(scored.values(), key=lambda x: x[0], reverse=True)][:limit]
+        return results
 
     results = await asyncio.to_thread(compute)
     return {"assets": results}
@@ -594,7 +598,7 @@ async def get_borderline(name: str, limit: int = 40):
                 return []
             pet_idx = names.index(name)
             state.borderline_progress["total"] = len(candidates)
-            scored = []
+            scored: dict[str, tuple[float, dict]] = {}
             with ThreadPoolExecutor(max_workers=emb.SCAN_WORKERS) as ex:
                 futures = {ex.submit(emb.get_crops_and_embed, a["id"]): a for a in candidates}
                 done = 0
@@ -609,9 +613,13 @@ async def get_borderline(name: str, limit: int = 40):
                         v = np.asarray(vec, dtype=np.float64).reshape(1, -1)
                         pet_prob = float(clf.predict_proba(scaler.transform(v))[0][pet_idx])
                         if LOW <= pet_prob < HIGH:
-                            scored.append((pet_prob, {**_slim_asset(a), "crops": [c], "score": round(pet_prob, 3)}))
-            scored.sort(key=lambda x: x[0])
-            return scored[:limit]
+                            aid = a["id"]
+                            item = {**_slim_asset(a), "crops": [c], "score": round(pet_prob, 3)}
+                            existing = scored.get(aid)
+                            if existing is None or pet_prob > existing[0]:
+                                scored[aid] = (pet_prob, item)
+            results = [item for _, item in sorted(scored.values(), key=lambda x: x[0])][:limit]
+            return results
         finally:
             if state.borderline_request_id == my_id:
                 state.borderline_progress["running"] = False

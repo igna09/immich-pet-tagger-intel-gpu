@@ -63,8 +63,8 @@ def _letterbox(img: Image.Image, new_shape=(640, 640)) -> np.ndarray:
 def _ov_worker_loop() -> None:
     """OpenVINO async inference loop for YOLO detection."""
     global _yolo_total_ms, _yolo_count
-    from app.device import get_openvino_device
-    
+    from device import get_openvino_device
+
     device = get_openvino_device()
     log.info(f"OpenVINO loading YOLO model on {device}...")
 
@@ -74,6 +74,7 @@ def _ov_worker_loop() -> None:
         log.error(f"OpenVINO model not found at {model_path}. Export it first!")
         return
 
+    core = ov.Core()
     model = core.read_model(model_path)
     compiled_model = core.compile_model(model, device)
 

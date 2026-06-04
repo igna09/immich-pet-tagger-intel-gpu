@@ -73,5 +73,6 @@ EXPOSE 8000
 
 COPY VERSION .
 COPY app/ .
+COPY debug_device.py .
 
 CMD ["python", "main.py"]

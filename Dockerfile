@@ -36,7 +36,7 @@ RUN if [ "$XPU" = "true" ]; then \
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir transformers \
+    && pip install --no-cache-dir transformers onnx \
     && pip uninstall -y opencv-python \
     && pip install --no-cache-dir opencv-python-headless \
     && pip uninstall -y triton 2>/dev/null || true

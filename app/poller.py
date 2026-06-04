@@ -238,17 +238,127 @@ def _run_poll_cycle(dd: Path, counts: dict, on_date=None, cancel=None, low_conf_
 
     log.info(f"Processing {len(assets)} assets with {emb.SCAN_WORKERS} workers")
     t0 = time.time()
+
+    import detector as _det
+
+    # Fetch thumbnails in parallel and submit YOLO detection tasks
+    assets_dict = {aid: ts for aid, ts in assets}
+    task_map: dict[_det._YoloTask, tuple[str, str, object]] = {}
     with ThreadPoolExecutor(max_workers=emb.SCAN_WORKERS) as executor:
-        futures = {executor.submit(process_asset, aid, ts): aid for aid, ts in assets}
-        for future in as_completed(futures):
+        fetch_futures = {executor.submit(emb.fetch_thumbnail, aid): aid for aid, _ in assets}
+        for future in as_completed(fetch_futures):
+            aid = fetch_futures[future]
+            ts = assets_dict.get(aid)
             if cancel and cancel.is_set():
                 executor.shutdown(wait=False, cancel_futures=True)
                 log.info("Scan cancelled.")
                 return
             try:
-                future.result()
+                img = future.result()
             except Exception as e:
-                log.warning(f"Asset {futures[future]} failed: {e}")
+                log.warning(f"fetch thumbnail {aid} failed: {e}")
+                with _count_lock:
+                    counts["no_thumb"] += 1
+                continue
+            if img is None:
+                with _count_lock:
+                    counts["no_thumb"] += 1
+                continue
+            # Submit async YOLO detection
+            try:
+                task = _det.submit_image_async(img)
+                task_map[task] = (aid, ts, img)
+            except Exception as e:
+                log.warning(f"Failed to submit YOLO task for {aid}: {e}")
+                with _count_lock:
+                    counts["no_thumb"] += 1
+
+    # Collect completed YOLO tasks and continue processing (embedding/classification)
+    remaining = set(task_map.keys())
+    while remaining:
+        if cancel and cancel.is_set():
+            log.info("Scan cancelled.")
+            return
+        completed = _det.get_completed_tasks(block=True, timeout=2.0)
+        if not completed:
+            continue
+        for task in completed:
+            if task not in task_map:
+                continue
+            aid, time_str, img = task_map.pop(task)
+            if task.result is None:
+                boxes = []
+            else:
+                boxes = task.result
+
+            # Build crops from YOLO boxes
+            if not boxes:
+                crops = [(None, img)]
+            else:
+                w, h = img.size
+                crops = [
+                    (bbox, img.crop((int(bbox[0] * w), int(bbox[1] * h), int(bbox[2] * w), int(bbox[3] * h))))
+                    for bbox in boxes
+                ]
+                if len(crops) > 1:
+                    log.info(f"YOLO detected {len(crops)} animals in {aid} ({time_str[:10]})")
+
+            vecs = [(bbox_norm, emb.embed_image(crop)) for bbox_norm, crop in crops]
+
+            existing_persons: set | None = None
+            tagged_in_photo: set[str] = set()
+
+            for bbox_norm, vec in vecs:
+                if vec is None:
+                    continue
+
+                pet_name, prob = clf_mod.classify(vec, names, clf, scaler)
+
+                if pet_name == "unknown":
+                    with _count_lock:
+                        counts["unknown"] += 1
+                    continue
+
+                if prob < THRESHOLD:
+                    with _count_lock:
+                        counts["low_confidence"] += 1
+                    if low_conf_out is not None:
+                        low_conf_out.append({"asset_id": aid, "pet_name": pet_name, "prob": prob, "date": time_str[:10]})
+                    continue
+
+                cfg = config.get(pet_name, {})
+                if not asset_in_range(time_str, cfg.get("since"), cfg.get("until")):
+                    with _count_lock:
+                        counts["out_of_range"] += 1
+                    continue
+
+                person_id = cfg.get("person_id")
+                if not person_id:
+                    log.warning(f"Pet '{pet_name}' has no person_id in config.")
+                    continue
+
+                if person_id in tagged_in_photo:
+                    with _count_lock:
+                        counts["already_tagged"] += 1
+                    continue
+
+                if existing_persons is None:
+                    existing_persons = imm.fetch_asset_face_person_ids(aid)
+
+                if person_id in existing_persons:
+                    with _count_lock:
+                        counts["already_tagged"] += 1
+                    continue
+
+                log.info(f"{imm.IMMICH_URL}/search/photos/{aid} -> {pet_name} ({prob:.3f}) | {time_str[:10]}")
+
+                face_id = imm.post_face_sync(aid, person_id, bbox_norm, img.size if bbox_norm is not None else None)
+                tagged_in_photo.add(person_id)
+                with _count_lock:
+                    if face_id:
+                        counts["added"] += 1
+                    else:
+                        counts["failed"] += 1
 
     elapsed = time.time() - t0
     clip_avg = emb.get_avg_batch_size()

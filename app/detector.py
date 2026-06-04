@@ -42,6 +42,7 @@ class _YoloTask:
 
 
 _task_queue: queue.Queue[_YoloTask] = queue.Queue()
+_completed_queue: queue.Queue[_YoloTask] = queue.Queue()
 _initialized = False
 _init_lock = threading.Lock()
 
@@ -117,16 +118,32 @@ def _ov_worker_loop() -> None:
             task.result = []
         finally:
             task.event.set()
+            try:
+                _completed_queue.put(task)
+            except Exception:
+                # ensure callback never raises
+                pass
 
     infer_queue.set_callback(completion_callback)
 
     while True:
         task = _task_queue.get()
+        log.debug("_ov_worker_loop: got task, preparing input")
 
         input_data = np.expand_dims(task.array, axis=0).astype(np.float32) / 255.0
         input_data = input_data.transpose(0, 3, 1, 2)
 
-        infer_queue.start_async({0: input_data}, userdata=task)
+        try:
+            infer_queue.start_async({0: input_data}, userdata=task)
+            log.debug("_ov_worker_loop: started async infer for task")
+        except Exception as e:
+            log.error(f"OpenVINO start_async error: {e}", exc_info=True)
+            task.result = []
+            task.event.set()
+            try:
+                _completed_queue.put(task)
+            except Exception:
+                pass
 
 # ---------------------------------------------------------------------------
 # Worker initialization
@@ -157,3 +174,33 @@ def detect_animals(img: Image.Image) -> list[tuple[float, float, float, float]]:
 
     task.event.wait()
     return task.result
+
+
+def submit_image_async(img: Image.Image) -> _YoloTask:
+    """Submit image for detection without blocking. Returns a task object.
+
+    The caller may later check `task.event` or use `get_completed_tasks()`.
+    """
+    _ensure_worker()
+    arr = _letterbox(img, (YOLO_INPUT_SIZE, YOLO_INPUT_SIZE))
+    task = _YoloTask(arr)
+    _task_queue.put(task)
+    log.debug("submit_image_async: task submitted")
+    return task
+
+
+def get_completed_tasks(block: bool = False, timeout: float | None = None) -> list[_YoloTask]:
+    """Retrieve completed tasks. If `block` is True, wait up to `timeout` seconds for one task.
+
+    Returns a list of `_YoloTask` objects that have finished processing.
+    """
+    tasks: list[_YoloTask] = []
+    try:
+        if block:
+            t = _completed_queue.get(timeout=timeout)
+            tasks.append(t)
+        while True:
+            tasks.append(_completed_queue.get_nowait())
+    except queue.Empty:
+        pass
+    return tasks

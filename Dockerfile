@@ -58,17 +58,27 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir opencv-python-headless \
     && pip uninstall -y triton 2>/dev/null || true
 
-# Runtime stage: clean base + only the final venv state (no ghost install layers).
+# Runtime stage
 FROM python:3.12-slim
+
+# Installazione dei driver grafici Intel e delle librerie di computazione
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gpg \
+    wget \
+    && wget -qO - https://repositories.intel.com/gpu/intel-graphics.key | gpg --dearmor --output /usr/share/keyrings/intel-graphics.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/intel-graphics.gpg] https://repositories.intel.com/gpu/ubuntu noble client" > /etc/apt/sources.list.d/intel-gpu.list \
+    && apt-get update && apt-get install -y --no-install-recommends \
+    intel-opencl-icd \
+    intel-level-zero-gpu \
+    level-zero \
+    libze1 \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 WORKDIR /app
-
-# /data is the mounted volume: pets/luna/, pets/config.json, state files, logs
 VOLUME ["/data"]
-
 EXPOSE 8000
 
 COPY VERSION .
@@ -76,3 +86,22 @@ COPY app/ .
 COPY debug_device.py .
 
 CMD ["python", "main.py"]
+
+# # Runtime stage: clean base + only the final venv state (no ghost install layers).
+# FROM python:3.12-slim
+
+# COPY --from=builder /opt/venv /opt/venv
+# ENV PATH="/opt/venv/bin:$PATH"
+
+# WORKDIR /app
+
+# # /data is the mounted volume: pets/luna/, pets/config.json, state files, logs
+# VOLUME ["/data"]
+
+# EXPOSE 8000
+
+# COPY VERSION .
+# COPY app/ .
+# COPY debug_device.py .
+
+# CMD ["python", "main.py"]

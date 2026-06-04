@@ -28,6 +28,7 @@ RUN if [ "$XPU" = "true" ]; then \
         torch==2.8.0 \
         torchvision \
         intel_extension_for_pytorch \
+        openvino \
         --extra-index-url https://download.pytorch.org/whl/xpu; \
     else \
       pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cpu; \
@@ -73,6 +74,11 @@ ENV PATH="/root/.local/bin:$PATH"
 ENV PYTHONPATH="/root/.local/lib/python3.12/site-packages"
 
 WORKDIR /app
+
+# [NOVITÀ] Scarica ed esporta il modello in FP16 durante la build
+# Usiamo python -c per non aver bisogno di file di script esterni
+RUN python -c "from ultralytics import YOLO; model = YOLO('yolov8n.pt'); model.export(format='openvino', half=True)"
+
 VOLUME ["/data"]
 EXPOSE 8000
 

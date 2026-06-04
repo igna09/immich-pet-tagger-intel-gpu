@@ -19,8 +19,9 @@ RUN if [ "$CUDA" = "true" ] && [ "$CUDA_LEGACY" = "true" ]; then \
       pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/rocm6.3; \
     elif [ "$XPU" = "true" ]; then \
       pip install --no-cache-dir --upgrade pip && \
-      pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 --index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/ && \
-      pip install --no-cache-dir intel-extension-for-pytorch==2.7.1.post1 --index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/; \
+      pip install --no-cache-dir \
+        torch==2.6.0 torchvision==0.21.0 \
+        --index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/; \
     else \
       pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cpu; \
     fi

@@ -19,22 +19,33 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Install torch first so it gets its own cached layer.
 # cu128 wheels (default) drop sm_50/60/70 to fit PyPI size limits; cu126 wheels keep
 # Maxwell through Hopper but lack Blackwell (sm_100/120). See pytorch/pytorch#145544.
-RUN if [ "$CUDA" = "true" ] && [ "$CUDA_LEGACY" = "true" ]; then \
-      pip install --no-cache-dir \
-        torch==2.7.0+cu126 \
-        torchvision==0.22.0+cu126 \
-        --extra-index-url https://download.pytorch.org/whl/cu126; \
-    elif [ "$CUDA" = "true" ]; then \
-      pip install --no-cache-dir \
-        torch==2.7.0+cu128 \
-        torchvision==0.22.0+cu128 \
-        --extra-index-url https://download.pytorch.org/whl/cu128; \
-    elif [ "$ROCM" = "true" ]; then \
-      pip install --no-cache-dir \
-        torch==2.7.0 \
-        torchvision==0.22.0 \
-        --index-url https://download.pytorch.org/whl/rocm6.3; \
-    elif [ "$XPU" = "true" ]; then \
+# RUN if [ "$CUDA" = "true" ] && [ "$CUDA_LEGACY" = "true" ]; then \
+#       pip install --no-cache-dir \
+#         torch==2.7.0+cu126 \
+#         torchvision==0.22.0+cu126 \
+#         --extra-index-url https://download.pytorch.org/whl/cu126; \
+#     elif [ "$CUDA" = "true" ]; then \
+#       pip install --no-cache-dir \
+#         torch==2.7.0+cu128 \
+#         torchvision==0.22.0+cu128 \
+#         --extra-index-url https://download.pytorch.org/whl/cu128; \
+#     elif [ "$ROCM" = "true" ]; then \
+#       pip install --no-cache-dir \
+#         torch==2.7.0 \
+#         torchvision==0.22.0 \
+#         --index-url https://download.pytorch.org/whl/rocm6.3; \
+#     elif [ "$XPU" = "true" ]; then \
+#       pip install --no-cache-dir \
+#         torch==2.7.0+xpu \
+#         torchvision \
+#         intel_extension_for_pytorch \
+#         --extra-index-url https://download.pytorch.org/whl/xpu; \
+#     else \
+#       pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 \
+#         --index-url https://download.pytorch.org/whl/cpu; \
+#     fi
+
+RUN if [ "$XPU" = "true" ]; then \
       pip install --no-cache-dir \
         torch==2.7.0+xpu \
         torchvision \
@@ -91,4 +102,4 @@ COPY VERSION .
 COPY app/ .
 COPY debug_device.py .
 
-CMD ["python3", "main.py"]
+CMD ["python", "main.py"]

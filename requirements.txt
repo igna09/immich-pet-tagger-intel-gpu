@@ -8,3 +8,4 @@ requests==2.32.3
 Pillow==10.4.0
 onnxruntime>=1.17.0
 openvino>=2024.0.0
+ultralytics>=8.0.0

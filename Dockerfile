@@ -20,10 +20,15 @@ ENV PATH="/root/.local/bin:$PATH"
 #       pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/rocm6.3; \
 #     elif [ "$XPU" = "true" ]; then \
 RUN if [ "$XPU" = "true" ]; then \
-      pip install --no-cache-dir --upgrade pip && \
+      # pip install --no-cache-dir --upgrade pip && \
+      # pip install --no-cache-dir \
+      #   torch==2.6.0 torchvision==0.21.0 \
+      #   --index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/; \
       pip install --no-cache-dir \
-        torch==2.6.0 torchvision==0.21.0 \
-        --index-url https://pytorch-extension.intel.com/release-whl/stable/xpu/; \
+        torch==2.7.0+xpu \
+        torchvision \
+        intel_extension_for_pytorch \
+        --extra-index-url https://download.pytorch.org/whl/xpu; \
     else \
       pip install --no-cache-dir torch==2.7.0 torchvision==0.22.0 --index-url https://download.pytorch.org/whl/cpu; \
     fi
